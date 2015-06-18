@@ -1,0 +1,275 @@
+#include <elapsedMillis.h>
+#include <MatrixMath.h>
+#include <Average.h>
+
+boolean run = true;
+int position_head[8];   // for incoming serial data (PART OF HEAD TRACKER CODE)
+// direction and stepper pins for each motor 1-3
+int dirPin = 8; 
+int stepperPin1 = 7;
+int dirPin2 = 13;
+int stepperPin2 = 12;
+int dirPin3 = 4;
+int stepperPin3 = 2;
+// Direction of stepper MOTOR movement. Initially set to zero (DOWNWARDS) FOR MOTORS 1-3
+int test1 = 0;
+int test2 = 0;
+int test3 = 0;
+//DUTY CYCLE FOR PWM CONTROLLED MOTORS 1-3
+int fb1 = 128;
+int fb2 = 128;
+int fb3 = 128;
+//START TIME FOR EACH MOTOR 1-3 STARTING FROM ZERO MILLISECONDS 
+elapsedMillis timeElapsed1 = 0;
+elapsedMillis timeElapsed2 = 0;
+elapsedMillis timeElapsed3 = 0;
+// HOW LONG EACH MOTOR WILL MOVE FOR 
+int interval1;
+int interval2;
+int interval3;
+//POSITION OF HEAD OBJECT
+int position_x;
+int position_y;
+void setup()
+{
+  Serial.begin(115200);
+   pinMode(dirPin, OUTPUT);
+   pinMode(stepperPin1, OUTPUT);
+   pinMode(dirPin2, OUTPUT);
+   pinMode(stepperPin2, OUTPUT);
+   pinMode(dirPin3, OUTPUT);
+   pinMode(stepperPin3, OUTPUT);
+}
+
+//------------INITIAL PARAMETERS-------------------------
+// first connected point 
+double px1=0;
+double py1=2;
+double pz1=12; 
+double p1[]= {px1,py1,pz1};
+// 2nd connected point 
+ double px2=-6;
+double py2=-2;
+double pz2=12;
+double p2[] = {px2,py2,pz2};
+// 3rd connected point 
+double px3=6;
+double py3=-2;
+double pz3=12;
+double p3[] = {px3,py3,pz3};
+ //1st connected point base
+double baseP1[] = {0, 2.5, 0};
+//2nd connected point base
+double baseP2[] = {-3,-2.5,0};
+//3rd connected point base
+ double baseP3[] = {3,-2.5,0}; 
+ //overall posistion of the platform current
+ double trueP2[] = {((px1+px2+px3)/3),((py1+py2+py3)/3),((pz1+pz2+pz3)/3)};
+//lenght of each leg 
+double legLength1 = 12;
+double legLength2 = 12;
+double legLength3 = 12;
+
+double BaseDiameter = 12;
+double platformDiameter = 8;
+double BaseRadius = BaseDiameter/2;
+double platformRadius = BaseDiameter/2;
+
+//desired platform position X,Y,Z COORDINATES WITH RELATION TO HEAD LOCATION
+int desiredX;// get x camera data*-1
+int desiredY;// get y camera data*-1
+int desiredZ;//
+// CURRENT POSISTION OF PLATFORM (NOTE: WE ASSUME THAT INITIAL POSISTION HAS ALL MOTORS STARTING FROM THE BASE OF THE PLATFORM)
+int currentX = 0;
+int currentY = 0;
+
+
+//*************************************KINEMANTIC FUNCTION WHICH WILL MOVE MOTORS TO DESIRED LENGTH!!!!********************************************
+void step (int desiredX,int desiredY,int desiredZ)
+{
+  double p[] = {desiredX,desiredY,desiredZ};
+  double d3 = sqrt(sq(p[0])+sq(p[1])+sq(p[2]));
+
+  double angle2 = acos(-((p[0])/d3));
+  double angle1 = atan2 ((p[2]/(d3*sin(angle2))),(p[1]/(d3*sin(angle2))));
+
+//roll, pitch, yaw
+  double roll= asin(-cos(angle2)*sin(angle1));
+  double pitch= atan2((-cos(angle1)/cos(roll)),((sin(angle1)*sin(angle2))/cos(roll)));
+  double yaw = atan2(((cos(angle1)*cos(angle2))/cos(roll)),((sin(angle2))/cos(roll)));
+  double ARB[3][3] = {{sin(angle2),0,-cos(angle2)},{cos(angle1)*cos(angle2),sin(angle1),cos(angle1)*sin(angle2)},{cos(angle2)*sin(angle1),-cos(angle1),sin(angle1)*sin(angle2)}};
+  double pp[] = {-d3*cos(angle2),d3*cos(angle1)*sin(angle2),d3*sin(angle1)*sin(angle2)};
+  double ai1[] = {baseP1[0],baseP1[1],baseP1[2]};
+  double bi1[] = {p1[0],p1[1],0};
+  double ai2[] = {baseP2[0],baseP2[1],baseP2[2]};
+  double bi2[] = {p2[0],p2[1],0};
+  double ai3[] = {baseP3[0],baseP3[1],baseP3[2]};
+  double bi3[] = {p3[0],p3[1],0};
+  double C1[3][1];
+  double C2[3][1];
+  double C3[3];
+  double C4[3];
+  double C5[3];
+  double C6[3][1];
+  double C7[1];
+  Matrix.Subtract((float*) pp, (float*) ai1,  1,  3, (float*) C5);
+  Matrix.Transpose((float*)bi1,1,3,(float*)C1);
+  Matrix.Multiply((float*)ARB,(float*)C1,3,3,1,(float*)C2);
+  Matrix.Transpose((float*)C2,3,1,(float*)C3);
+  Matrix.Add((float*)C5,(float*)C3,1,3,(float*)C4);
+  Matrix.Transpose((float*)C4,1,3,(float*)C6);
+  Matrix.Multiply((float*)C4,(float*)C6,1,3,1,(float*)C7);
+  
+  double qi1= sqrt(C7[0]);
+
+  double D1[3][1];
+  double D2[3][1];
+  double D3[3];
+  double D4[3];
+  double D5[3];
+  double D6[3][1];
+  double D7[1];
+  Matrix.Subtract((float*) pp, (float*) ai2,  1,  3, (float*) D5);
+  Matrix.Transpose((float*)bi2,1,3,(float*)D1);
+  Matrix.Multiply((float*)ARB,(float*)D1,3,3,1,(float*)D2);
+  Matrix.Transpose((float*)D2,3,1,(float*)D3);
+  Matrix.Add((float*)D5,(float*)D3,1,3,(float*)D4);
+  Matrix.Transpose((float*)D4,1,3,(float*)D6);
+  Matrix.Multiply((float*)D4,(float*)D6,1,3,1,(float*)D7);
+  
+  double qi2= sqrt(D7[0]);
+  
+  double E1[3][1];
+  double E2[3][1];
+  double E3[3];
+  double E4[3];
+  double E5[3];
+  double E6[3][1];
+  double E7[1];
+  Matrix.Subtract((float*) pp, (float*) ai3,  1,  3, (float*) E5);
+  Matrix.Transpose((float*)bi3,1,3,(float*)E1);
+  Matrix.Multiply((float*)ARB,(float*)E1,3,3,1,(float*)E2);
+  Matrix.Transpose((float*)E2,3,1,(float*)E3);
+  Matrix.Add((float*)E5,(float*)E3,1,3,(float*)E4);
+  Matrix.Transpose((float*)E4,1,3,(float*)E6);
+  Matrix.Multiply((float*)E4,(float*)E6,1,3,1,(float*)E7);
+  double qi3= sqrt(E7[0]);
+// 500 MILLISECONDS MOVES THE MOTOR 0.1CM AND qi1,qi2,qi3 ARE THE DESIRED LEG LENGTHS 
+   interval1 = 500*qi1;
+   interval2 = 500*qi2;
+   interval3 = 500*qi3;
+ // DECIDES WHETHER TO MOVE MOTORS UP OR DOWN 
+   test1 = !(qi1<legLength1);
+   test2 = !(qi2<legLength2);
+   test3 = !(qi3<legLength3);
+ 
+if(run)
+{
+digitalWrite(dirPin, test1);
+digitalWrite(dirPin2, test2);
+digitalWrite(dirPin3, test3);
+
+boolean s1 = false, s2 = false, s3 = false;
+
+timeElapsed1 = 0;
+analogWrite(stepperPin1,fb1);
+
+timeElapsed2 = 0;
+analogWrite(stepperPin2,fb2);
+
+timeElapsed3 = 0;
+analogWrite(stepperPin3,fb3);  
+
+while(!s1 || !s2 || !s3)
+{
+ if (timeElapsed1 > interval1)
+ {
+   analogWrite(stepperPin1,0);
+   s1 = true;   
+   legLength1 = qi1;
+ }
+  if (timeElapsed2 > interval2)
+ {
+   analogWrite(stepperPin2,0);
+   s2 = true;
+   legLength2 = qi2;
+ }
+  if (timeElapsed3 > interval3)
+ {
+   analogWrite(stepperPin3,0);  
+   s3 = true;
+   legLength3 = qi3;
+ }
+}
+  run = false;
+}
+}
+//***********************END OF FUNCTION!!!****************************************
+
+void loop()
+{
+  // JUNGHWAN HEAD TRACKER CODE 
+   // send data only when you receive data:
+        if (Serial.available() > 0) {
+                int ch = 0;
+               while (ch < 10){  
+
+                 int u = Serial.read();
+                if(u==-1) {
+                 
+                }
+                else{ 
+                position_head[ch]=u;
+                ch++;
+                }
+               }
+               
+        if((position_head[0]==8)&&((position_head[9]==8)))  {     
+              
+       
+        int x_dir = position_head[1];
+        if(x_dir==0){x_dir = -1;}
+        else{x_dir==1;}
+        
+        int y_dir = position_head[5];
+        if(y_dir==0){y_dir = -1;}
+        else{y_dir==1;}
+        //GET X AND Y COORDINATES OF HEAD
+        position_x = x_dir*(position_head[2]*100+position_head[3]*10+position_head[4]);
+        position_y = y_dir*(position_head[6]*100+position_head[7]*10+position_head[8]);
+        
+        // UNCOMMENT BELLOW IF YOU WANT TO SEE X AND Y POSITION OF HEAD OBJECT
+           /**Serial.println();
+           Serial.print(position_x);
+           Serial.println();
+           
+           Serial.print(position_y);
+           */
+           
+           // MAPS MAX AN MIN X AND Y VALUES TO A COORDINATE MAP WHICH IS MUCH MORE SUITABLE FOR PLATFORM 
+            int cX = map(position_x, -590, 590, -8, 8);
+            int cY = map(position_y, -590, 590, -8, 8);
+            
+           // UNCOMMENT BELLOW IF YOU WANT TO SEE X AND Y POSITION OF HEAD OBJECT after they are mapped 
+           /**Serial.println();
+           Serial.print(cX);
+           Serial.println();
+           Serial.print(cY);
+           */
+            //PLATFORM DESIRED ORIENTATION 
+            desiredX = cX*-1;// get MAPPED X AXIS Camera DATA MULTIPLIED BY -1 WHICH WILL BEOME THE X COORDINATE OF PLATFORM
+            desiredY = cY*-1;// get MAPPED Y AXIS Camera DATA MULTIPLIED BY -1 WHICH WILL BEOME THE Y COORDINATE OF PLATFORM
+            desiredZ = 12;// no need to change z axis value as this is constant (WILL NOT CHANGE)  
+             }
+             
+  // IF CURRENT POSISTION OF PLATFORM IS NOT THE SAME THE DESIRED POSITION AND IF THE HEAD OBJECT IS NOT ALREADY IN THE CENTRE VISION (0,0) 
+  if ((desiredX != currentX || desiredY != currentY) && (desiredY !=0&&desiredX !=0)){  
+  //THEN APPLY KINEMANTIC MODEL
+  step (desiredX,desiredY,desiredZ);
+ //THE CURRENT X AND Y POSISTIONS WILL CHANGE ACCORDANLY  
+  currentX = desiredX;
+  currentY = desiredY;
+  } 
+ }
+
+}
